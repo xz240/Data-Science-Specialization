@@ -1,0 +1,150 @@
+---
+title: "Course Project 1"
+author: "Andrew Mendonca"
+date: "July 25, 2017"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+## Loading and preprocessing the data
+
+The first thing to do is unzip the file and load the data by read.csv.
+
+```{r, echo = TRUE}
+unzip(zipfile = "C:/Users/amend/Documents/GitHub/RepData_PeerAssessment1/activity.zip")
+filedata <- read.csv("activity.csv", header = TRUE, sep = ",", na.strings = "NA",
+                     colClasses = cbind("numeric", "character", "integer"))
+head(filedata)
+```
+The next thing to do is process/transform the data into a suitable format
+by correcting the dates and removing rows with missing values.
+
+```{r, echo = TRUE}
+filedata$date <- as.Date(filedata$date, format = "%Y-%m-%d")
+filedata_ignore <- subset(filedata, !is.na(filedata$steps))
+```
+
+## What is mean total number of steps taken per day?
+
+First, calculate the total number of steps taken per day.
+
+```{r, echo = TRUE}
+stepsTotal <- tapply(filedata_ignore$steps, filedata_ignore$date, sum,
+                     na.rm = TRUE)
+```
+Next, make a histogram of the total number of steps taken per day.
+
+```{r, echo = TRUE}
+hist(stepsTotal, breaks = 40, main = "The Distribution of Daily Total Steps 
+     (missing data ignored)", xlab = "Total Steps Taken Per Day", 
+     ylab = "Frequency", col = "Blue")
+```
+
+Next, calculate and report the mean and median of the total number of steps
+taken per day.
+
+```{r, echo = TRUE}
+mean(stepsTotal)
+median(stepsTotal)
+```
+Therefore, the mean is 10766 steps and the median is 10765 steps.
+
+
+## What is the average daily activity pattern?
+
+Make a time series plot (i.e. type = "l") of the 5-minute interval (x-axis)
+and the average number of steps taken, averaged across all days (y-axis).
+
+```{r, echo = TRUE}
+average_pattern <- tapply(filedata_ignore$steps, filedata_ignore$interval,
+                          mean, na.rm = TRUE)
+filedata_ap <- data.frame(interval = as.integer(names(average_pattern)),
+                          avg = average_pattern)
+plot(filedata_ap$interval, filedata_ap$avg, type = "l", col = "Red",
+     main = "Average Daily Activity Pattern", xlab = "5-minute interval",
+     ylab = "Average Number of Steps Across All Days")
+```
+
+Next, determine which 5-minute interval, on average across all the days 
+in the dataset, contains the maximum number of steps.
+
+```{r, echo = TRUE}
+filedata_ap[filedata_ap$avg == max(filedata_ap$avg),]
+```
+It appears that the interval 835 contains a maximum of 206 steps.
+
+
+## Imputing missing values
+
+First, calculate and report the total number of missing values in the
+dataset (i.e. the total number of rows with NAs).
+
+```{r, echo = TRUE}
+sum(is.na(filedata$steps))
+```
+So the total number of rows with NAs is 2304.
+
+A good strategy for filling in the missing values is to use the mean
+for any 5-minute interval with a missing value.
+
+Create a dataset filedata_imp that is equal to the original dataset 
+but with the missing data filled in.
+
+```{r, echo = TRUE}
+filedata_imp <- filedata
+new_data <- is.na(filedata_imp$steps)
+average_pattern <- tapply(filedata_ignore$steps, filedata_ignore$interval,
+                          mean, na.rm = TRUE)
+filedata_imp$steps[new_data] <- average_pattern[as.character(filedata_imp$interval[new_data])]
+head(filedata_imp)
+```
+Make a histogram of the total number of steps taken each day and calculate
+and report the mean and median total number of steps taken per day.
+
+```{r, echo = TRUE}
+new_total <- tapply(filedata_imp$steps, filedata_imp$date, sum, na.rm = TRUE)
+hist(new_total, breaks = 40, main = "The Distribution of Daily Total Steps 
+     (with missing data imputed)", xlab = "Total Steps Taken Per Day", 
+     ylab = "Frequency", col = "Blue")
+mean(new_total)
+median(new_total)
+```
+The new mean is 10766 and the new median is 10766. Compared with the original mean 10766 
+and the original median 10765, the mean stays the same and the median slightly changes.
+It appears that the new median is identical to the mean because when filling out all the missing
+data for the intervals, means are being used, so this results in more data being close or
+identical to the intervals, and thus, the median becomes identical to the mean.
+
+The impact of imputing data on the estimates of the total daily number of steps results 
+in higher frequencies in the center region of the histogram, which is close to the mean.
+
+
+## Are there differences in activity patterns between weekdays and weekends?
+
+First, create a new factor variable "week" in the dataset with two
+levels - "weekday" and "weekend" indicating whether a given date is a
+weekday or weekend day.
+
+```{r, echo = TRUE}
+validWeekday <- function(days) {
+  ifelse(weekdays(days) == "Saturday" | weekdays(days) == "Sunday", 
+         "weekend", "weekday")
+}
+filedata_imp$week <- as.factor(sapply(filedata_imp$date, validWeekday))
+head(filedata_imp)
+```
+Next, make a panel plot containing a time series plot (i.e. type = "l") of the
+5-minute interval (x-axis) and the average number of steps taken, averaged
+across all weekday days or weekend days (y-axis).
+
+```{r, echo = TRUE}
+library(lattice)
+filedata_week <- aggregate(steps ~ week + interval, filedata_imp, mean)
+xyplot(steps ~ interval | factor(week), layout = cbind(1, 2), type = "l",
+       lty = 1, xlab = "Interval", ylab = "Number of steps", filedata_week)
+```
+
+Based on the panel plot, it appears that people are more active earlier in
+the day during weekdays than weekends, but they are more active throughout 
+the rest of the weekends than weekdays.

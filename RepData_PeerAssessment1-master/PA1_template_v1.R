@@ -1,0 +1,306 @@
+# STEP 1 Loading and preprocessing the data
+
+require(ggplot2)
+require(lubridate)
+require(RColorBrewer)
+require(dplyr)
+require(ggthemes)
+library(scales)
+
+loadData <- function(dataURL="", destF="default.csv", method = NULL){
+  if(!file.exists(destF)){
+    temp <- tempfile()
+    download.file(dataURL, temp, method = method)
+    unzip(temp, destF)
+    unlink(temp)
+  }else{
+    message("Data already downloaded.")
+  }
+}
+dataURL <-"https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+loadData(dataURL, "activity.csv")
+
+active <- read.csv("activity.csv")
+active$date<-as.Date(active$date)
+# Lubridate's wday function can fill in the Weekday's full names as ordered factor variables. Sun to Sat.
+# Create a column of these days of the week for each date for subsetting.
+active$Weekday<-wday(active$date, label = TRUE, abbr = FALSE)
+#Quick look at the data
+head(active)
+
+#STEP 2 What is mean total number of steps taken per day?
+
+# Create function which takes the active dataframe, and an RBrewers color scheme for customization. 
+# Color scheme defaults to "Greens"
+# Weekend are colored the same dark color to identify better. 
+# Weekdays start light on Monday and gradually get darker as they approach the Weekend.
+# Creates a plot which:
+# 1.) Makes a histogram of the total number of steps taken each day
+# 2.) Calculates and reports the mean and median total number of steps taken per day
+
+
+make.sums.ggplot<- function(active.dataframe, RBrewers.colors = "Greens"){
+  
+#Transmform the data and get averages.
+#Sum up steps of the data.frame, grouped by date
+  active.sums <- active.dataframe %>%
+    group_by(date, Weekday) %>%
+    summarise(total_steps = sum(steps))
+  
+# Create a vector of brewer greens for representing the ordinal change from Monday to Sunday.
+# Brewer.pal takes an integer (n) and an RBrewer color set. 
+# It then creates (n) gradients of color that cover the passed in color set. 
+# 7 is passed in because there are 7 factors: each day of the week.
+  my.cols <- brewer.pal(7, RBrewers.colors)
+# Ordered factors start on Sunday. Rather than reordering the date factor variables, we can just reassign the color for Saturday to Sunday as well. This will make the Weekends stand out.
+  my.cols[1] <- my.cols[7]
+# Get max number of steps for largest interval for extending y-axis to fit labels.
+  max.sum <- max(active.sums$total_steps, na.rm = TRUE)
+  
+  
+  ggplot(active.sums, aes(x = date, y = total_steps, fill = Weekday)) + geom_bar(stat = "identity") +
+    scale_x_date(breaks="1 day", 
+                 limits = as.Date(c('2012-10-03','2012-11-28'))) +
+    theme_wsj() +    
+    theme(axis.text.x  = element_text(size=10,
+                                      angle=45,
+                                      colour="black",
+                                      vjust=1,
+                                      hjust=1)) + 
+    scale_fill_manual(values = my.cols) + 
+    geom_text(aes(x = date, 
+                  y = total_steps, 
+                  label = total_steps, 
+                  angle  = 90, 
+                  size = 5, 
+                  hjust = -0.1), 
+              color = "brown", 
+              show_guide  = F) + 
+    
+#theme(panel.grid.minor = element_blank(), 
+#      panel.grid.major = element_blank()) +
+#theme(panel.background = element_rect(fill="darkgrey")) + 
+# Adjust the y axis. Start from 0. 
+# Continue to 15% beyond the max y-value so that the labels don't get cut off.
+    coord_cartesian(ylim=c(0,max.sum*1.15)) +
+    geom_hline(aes ( yintercept = mean(total_steps, na.rm = TRUE)), 
+               color = "chocolate3", 
+               size = 1.5, 
+               alpha = .50) + 
+    geom_hline(aes ( yintercept = median(total_steps, na.rm = TRUE)), 
+               color = "darkred", 
+               alpha = .50) +
+    geom_text(aes(label = paste("Overall Mean =", round(mean(total_steps, na.rm = TRUE), 2) ),
+                  x = as.Date('2012-10-05'),
+                  y = 20200), 
+              color = "chocolate3", 
+              size = 4) +
+    geom_text(aes(label = paste("Overall Median = ", round(median(total_steps, na.rm = TRUE), 2) ),
+                  x = as.Date('2012-10-05'),
+                  y = 19700),
+              color = "darkred",
+              size = 4) +
+    ylab("Total Steps taken per day") +
+    xlab(NULL)
+}
+
+make.sums.ggplot(active, "Greens")
+
+
+#STEP 3 What is the average daily activity pattern?
+
+# Create a function which:
+# 1.) Makes a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis) This plotted in 5 minute intervals but labeled in 30 minute intervals to reduce labeling clutter.
+# 2.) Reports the 5-minute interval, on average across all the days in the dataset, which contains the maximum number of steps
+# 5 interval column data is from 0-60, then 100-160, etc.
+# Converts 5 minute interval data to POSIXct format (60 minutes in an hour)
+
+active$Interval <- as.POSIXct(strptime(sprintf("%04d", active$interval), "%H%M")) 
+
+
+make.max.interval.ggplot<- function(active.dataframe){
+  
+  # Use dplyr's piping functions to transform data 
+  # then pass that transformed data to the next transform function.
+  active.intervals <- active.dataframe %>%
+    group_by(Interval) %>%
+    summarise(Average = mean(steps, na.rm = TRUE)) %>%
+    arrange(Interval)
+  
+  # Pulls out the row which had the max average into a one row data.frame
+  max.active <- active.intervals[which.max(active.intervals$Average),]
+  # Grab the max interval for plotting. 
+  # Assign to global environment since ggplot can't find it when called from within a function.
+  max.interval <<- max.active$Interval[1]
+  # Grab the average steps for plotting.
+  max.average <<- round(max.active$Average[1], 2)
+  
+  
+  ggplot(active.intervals, aes(x = Interval, y = Average)) +
+    geom_line() +
+    theme_economist() +
+    geom_text(aes(label = paste("Max Interval =", format(max.interval, "%H:%M")),
+                  x = max.interval,
+                  y = max.average + 12),
+              color = "black",
+              size = 4) +
+    geom_text(aes(label = paste("Average Steps in the max interval =", max.average ),
+                  x = max.interval,
+                  y = max.average + 4),
+              color = "black",
+              size = 4) + 
+    theme(axis.text.x=element_text(angle=270,
+                                   hjust=1,
+                                   vjust=0.5,
+                                   size = 10)) + 
+    scale_x_datetime(breaks = date_breaks("30 mins"),
+                     labels = date_format("%H:%M"),
+                     limits = c(active.intervals$Interval[12], active.intervals$Interval[286-10])) +
+    ylab("Average steps") + 
+    xlab("5-minute Time Intervals (Labeled in chunks of 30-minutes)")
+}
+
+make.max.interval.ggplot(active)
+
+#Inputing missing values
+# 1.) Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NAs)
+# NA's :2304
+
+summary(active)
+
+# Subset out all rows with an NA value, 2304 rows
+NA.active <- subset(active, !complete.cases(active))
+
+# All NAs are contained in 8 days, which have all steps missing in each day 
+table(NA.active$date)
+
+
+# 2.) We will impute the values by filling in the mean of the steps in each interval. 
+# For example, to fill in NA's on Monday's at 12:00, all "12:00 - 12:05" intervals for all Monday's will be used to get the imputed value.
+# The same will be done for Tuesday's in this time period, etc. So that each unique day has different means in each time interval.
+#Initial step:
+# Create function that gets breakdown of an interval, by Weekday
+
+
+interval.summary <- function(active_frame, interval_string = "all"){
+# '''
+# Takes dataframe with Interval, Weekday, and steps data.
+# Takes optional string value specifying which interval means to return.
+# If no interval data is supplied, or "all" is entered, all intervals will be returned.
+#   
+# Returns a dataframe containing Interval (all if none specified), Weekday, and Average. 
+# '''
+  
+  active_frame$temp_time <- format(active_frame$Interval, "%H:%M")
+  
+  if (class(interval_string) != "character") {stop("Please enter an interval as a string.")}
+  if (!(interval_string %in% c( active_frame$temp_time, "all" ) ) ) {stop("Please enter a 5 minute interval in the form of 00:00")}
+  
+  output <- active_frame %>% 
+    group_by(temp_time, Weekday) %>%
+    summarise(Average = mean(steps, na.rm = TRUE))
+  if (interval_string == "all") {
+    return(output)
+  } else {
+    output<- output %>%
+      filter(temp_time == interval_string)
+    return(output)
+  }
+}
+
+# Here we show the averages for max interval, 8:35, on each different day.
+interval.summary(active, "08:35")
+
+# To impute, we subgroup the data by Weekday and Interval and fill in any missing values with the average for that particular Interval/Weekday combination using the dplyr package.
+
+imputed <- active %>%
+  mutate(steps = as.numeric(steps)) %>%
+  group_by(Interval, Weekday) %>%
+  mutate(steps = ifelse(is.na(steps), mean(steps, na.rm = TRUE), steps)) %>%
+  mutate(steps = round(steps, 2))
+
+# Calling our previous function, the means, min and max, don't change, and now NA's are filled in.
+#interval.summary(imputed, 835) #Not called in RMarkdown for brevity
+#interval.summary(active, 835) #Not called in RMarkdown for brevity
+## Needs docstring: Accepts (df, df, int, string) type combination
+# Integrity check function to make sure imputation went as planned.
+imputed.check<- function(original.df, imputed.df, check.interval, check.Weekday) {
+  print ("Original interval/day combination")
+  print (subset(original.df, original.df$interval == check.interval & Weekday == check.Weekday))
+  # Mean without the NAs for this interval/day combination is 225.8571
+  temp.mean <- mean(subset(original.df, original.df$interval == check.interval & Weekday == check.Weekday)$steps, na.rm = TRUE)
+  print ("")
+  print (paste("Mean for original dataset (with na.rm = TRUE) NAs is:", round(temp.mean, 2)))
+  print ("")
+  # This mean is filled into the NA slots, while the remaining values remain unchanged.
+  print ("Imputed interval/day combination")
+  print (subset(imputed.df, imputed.df$interval == check.interval & Weekday == check.Weekday))
+}
+
+
+# Integrity Check #1:
+imputed.check(active, imputed, 835, "Monday")
+
+# Quick check on the rows of all Mondays in interval 835 in the original set vs. the imputed set
+
+# Mean without the NAs for this interval/day combination is 225.86
+
+# This mean is filled into the NA slots, while the remaining values remain unchanged.
+
+
+# Integrity Check #2:
+imputed.check(active, imputed, 1005, "Thursday")
+
+# Quick check on the rows of all Thursday in interval 1005 in the original set vs. the imputed set. Zero is filled into this interval/day combination since it is all zeros.
+
+
+# Integrity Check #3:
+imputed.check(active, imputed, 1600, "Saturday")
+
+# Quick check on the rows of all Thursday in interval 1600 in the original set vs. the imputed set. This value is filled in correctly as well.
+
+#4.) Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day.  
+# Call our make.sums.ggplot to make a new plot with the imputed dataset
+# The mean and median changed slightly since the missing/imputed days were fairly busy days in general in the dataset.
+make.sums.ggplot(imputed, "Blues")
+
+#Are there differences in activity patterns between Weekdays and Weekends?
+# 1.) Add Weekend column
+
+imputed<- imputed %>% 
+  mutate(Weekend = ifelse(Weekday %in% c("Saturday", "Sunday"), "Weekend", "Weekday"))
+
+# Make sure function worked with table()
+table(imputed$Weekend, imputed$Weekday)
+
+# 2.) Makes a panel plot containing a time series plot (i.e. type = "l") of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all Weekday days or Weekend days (y-axis). 
+
+make.Weekend.ggplot<- function(active.dataframe){
+  
+#Transmform the data and get averages.
+  active.intervals <- active.dataframe %>%
+    group_by(Weekend, Interval) %>%
+    summarise(Average = mean(steps, na.rm = TRUE))
+  
+#active.intervals<- cbind(active.intervals)
+  ggplot(active.intervals, aes(x = Interval, 
+                               y = Average, 
+                               group = Weekend, 
+                               color = Weekend)) +
+    theme_solarized(light = FALSE) +
+    geom_line() +
+    facet_grid(Weekend~.) +
+    theme(axis.text.x=element_text(angle=270,hjust=1,vjust=0.5, size = 10)) + 
+    scale_x_datetime(breaks = date_breaks("30 mins"),
+                     labels = date_format("%H:%M"),
+                     limits = c(active.intervals$Interval[12], active.intervals$Interval[286-10])) +
+    ylab("Average steps") + 
+    xlab("5-minute Time Intervals (Labeled in chunks of 30-minutes)") +
+    theme(legend.position="none")
+#scale_x_discrete(breaks = active.intervals$Interval, labels=rep(times,2)) +
+# theme(axis.text.x=element_text(angle=90,hjust=1,vjust=0.5, size = 0.5))
+}
+
+make.Weekend.ggplot(imputed)
+
+
